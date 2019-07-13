@@ -1,5 +1,6 @@
 # Simple Kubernetes Cluster Capacity Finder
 
+
 - Written in Golang.
 - Program takes CPU/Memory resources for Kubernetes objects (say pods), required number of replicas as inputs and tells if you can really get them scheduled on your Kubernetes cluster !!
 - It makes use of Kubernetes client-go API library under the hood.
@@ -19,7 +20,7 @@
 
 
 ### Sample run
-go run ClusterCapacity.go -cpuRequests=200m -cpuLimits=400m -memRequests=250mb -memLimits=500mb -replicas=10
+- go run ClusterCapacity.go -cpuRequests=200m -cpuLimits=400m -memRequests=250mb -memLimits=500mb -replicas=10
 ===============================================================================================================================
 
          Total possible replicas for the pod with required input specs : 1561
