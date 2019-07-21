@@ -35,12 +35,13 @@
         No of pod replicas (default "1")
 ```
 
-### Sample run
-- go run ClusterCapacity.go -cpuRequests=200m -cpuLimits=400m -memRequests=250mb -memLimits=500mb -replicas=10
+### Sample run output
+```
+go run ClusterCapacity.go -cpuRequests=200m -cpuLimits=400m -memRequests=250mb -memLimits=500mb -replicas=10
 ==============================================================================================================
 
          Total possible replicas for the pod with required input specs : 1561
          So you can go ahead with deployment of 10 pod replicas in the Kubernetes cluster!!
 
 ==============================================================================================================
-
+```
