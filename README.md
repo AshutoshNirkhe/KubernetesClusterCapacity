@@ -20,7 +20,7 @@
 
 
 ### Usage flags
-- go run ClusterCapacity.go -help 
+```
   -cpuLimits string
         CPU Limits either in cores(2) or milicores(500m) (default "200m")
   -cpuRequests string
@@ -33,7 +33,7 @@
         Memory requests either in GB(1) or milicores(250mb) (default "100mb")
   -replicas string
         No of pod replicas (default "1")
-
+```
 
 ### Sample run
 - go run ClusterCapacity.go -cpuRequests=200m -cpuLimits=400m -memRequests=250mb -memLimits=500mb -replicas=10
