@@ -26,8 +26,8 @@ func main() {
 
 	cpuRquestsStr := flag.String("cpuRequests", "100m", "CPU Requests either in cores(1) or milicores(250m)")
 	cpuLimitsStr := flag.String("cpuLimits", "200m", "CPU Limits either in cores(2) or milicores(500m)")
-	memRequestsStr := flag.String("memRequests", "100mb", "Memory requests either in GB(1) or milicores(250mb)")
-	memLimitsStr := flag.String("memLimits", "200mb", "Memory limits either in GB(2) or milicores(500mb)")
+	memRequestsStr := flag.String("memRequests", "100mb", "Memory requests either in GB(1) or megabytes(250mb)")
+	memLimitsStr := flag.String("memLimits", "200mb", "Memory limits either in GB(2) or megabytes(500mb)")
 	replicasStr := flag.String("replicas", "1", "No of pod replicas")
 	flag.Parse()
 
