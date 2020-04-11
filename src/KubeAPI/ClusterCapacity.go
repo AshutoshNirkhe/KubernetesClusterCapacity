@@ -1,3 +1,25 @@
+/* Overall logic and flow of program
+
+Inputs : kubeconfig, cpuRequests, cpuLimits, memRequests, memLimits, replicas (needed for pods)
+
+Output : Total possible replicas for pod of given resource requirements.
+
+Code :
+1. Verify all inputs for correctness, assign default values wherever possible, throw errors otherwise.
+2. Create a kubernetes clientset object from kubeconfig configuration.
+3. 'getHealthyNodes' function retrieves all the nodes which doesn't have any memory, disk, cpu pressure etc.
+   In addition, it will also return totalAllocatableCPU, totalAllocatableMemory and totalAllocatablePods(110 by default).
+4.a. For each health node, call 'getNonTerminatedPodsForNode' to get list of all non-terminated pods (pods whose status is no Pending, Succedded, Failed or Unknown)
+  b. For all pods (on a given node), call 'getPodCPUMemoryRequestsLimits' to calculate the sum of memory, cpu requests and limits of all the containers running in these pods.
+	 This will basically give the total summation of cpuRequestsUsed, cpuLimitsUsed, memoryRequestsUsed, memoryLimitsUsed on a given node.
+  c. Now if totalCpuRequestsUsed > totalAllocatableCPU, the node is already full and hence no replicas can be schedulded.
+	 Else, maxPossibleCPUReplicas (based on CPU requests alone) = ( totalAllocatableCPU - totalCpuRequestsUsed ) / cpuRequests
+  d. Similarly maxPossibleMemoryReplicas (based on Memory requests alone) = ( totalAllocatableMemory - totalMemoryRequestsUsed ) / memRequests
+  e. Find minimum of maxPossibleCPUReplicas and maxPossibleMemoryReplicas. This is the maxReplicasPerNode that can be scheduled (on this node).
+5. Repeat step 4 for all other nodes. Summation of maxReplicasPerNode for all the nodes will be the totalMaxReplicas that can be scheduled on the kubernetes cluster.
+
+*/
+
 package main
 
 import (
