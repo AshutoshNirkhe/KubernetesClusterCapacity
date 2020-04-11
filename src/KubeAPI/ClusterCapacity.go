@@ -26,16 +26,24 @@ import (
 	"bytefmt"
 	"flag"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
-	"os"
-	"path/filepath"
-	"strconv"
-	"strings"
 )
+
+type node struct {
+	name              string
+	allocatableCPU    uint64
+	allocatableMemory int64
+	allocatablePods   int
+}
 
 func main() {
 
@@ -58,18 +66,20 @@ func main() {
 
 	memRequests, memReqErr := bytefmt.ToBytes(*memRequestsStr)
 	if memReqErr != nil {
-		fmt.Printf("Invalid input...exiting")
+		fmt.Println("ERROR : Invalid input memRequests =", memRequests, memReqErr, "...exiting")
+		os.Exit(1)
 	}
 
 	memLimits, memLimErr := bytefmt.ToBytes(*memLimitsStr)
 	if memLimErr != nil {
-		fmt.Printf("Invalid input...exiting")
+		fmt.Println("ERROR : Invalid input memLimits =", memLimits, memLimErr, "...exiting")
+		os.Exit(1)
 	}
 
 	replicas, numerr := strconv.Atoi(*replicasStr)
 	if numerr != nil {
-		fmt.Printf("Invalid input for replicas...exiting")
-		replicas = 0
+		fmt.Println("ERROR : Invalid input replicas =", replicas, numerr, "...exiting")
+		os.Exit(1)
 	}
 
 	fmt.Printf("\nCPU limits, requests, Memory limits, requests and replicas parsed from input : %v %v %v %v %v\n", cpuLimits, cpuRequests, memLimits, memRequests, replicas)
@@ -86,48 +96,43 @@ func main() {
 		panic(err.Error())
 	}
 
-	nodes, nodesCPU, nodesMemory, nodeAllocatablePods := getHealthyNodes(clientset)
-
-	//fmt.Printf("\nHealthy nodes are : %v\n\n", nodes)
-	//fmt.Printf("\nHealthy nodes CPU are : %v\n\n", nodesCPU)
-	//fmt.Printf("\nHealthy nodes Memory are : %v\n\n", nodesMemory)
-	//fmt.Printf("\nHealthy nodes Max Allocatable pods : %v\n\n", nodeAllocatablePods)
+	nodes := getHealthyNodes(clientset)
 
 	totalPossibleMaxReplicas := 0
 	possibleMaxCPUReplicas := 0
 	possibleMaxMemoryReplicas := 0
 
 	for index, node := range nodes {
-		pods, namespaces := getNonTerminatedPodsForNode(clientset, node)
+		pods, namespaces := getNonTerminatedPodsForNode(clientset, nodes[index].name)
 		fmt.Printf("\n%v - ", node)
 		fmt.Printf("Current non-terminated pods : %d", len(pods))
 		cpuLimitsMiliTotal, cpuRequestsMiliTotal, memoryLimitsBytesTotal, memoryRequestsBytesTotal := getPodCPUMemoryRequestsLimits(clientset, pods, namespaces)
 		fmt.Printf("\nSum of CPU Limits, Requests and Memory Limits, Requests for all pods : %v %v %v %v", cpuLimitsMiliTotal, cpuRequestsMiliTotal, memoryLimitsBytesTotal, memoryRequestsBytesTotal)
-		fmt.Printf("\nTotal allocatbale CPU and Memory : %v, %v", nodesCPU[index], nodesMemory[index])
+		fmt.Printf("\nTotal allocatbale CPU and Memory : %v, %v", nodes[index].allocatableCPU, nodes[index].allocatableMemory)
 
-		cpuRequestUsedPercent := float64(cpuRequestsMiliTotal) * 100 / float64(nodesCPU[index])
-		memoryRequestUsedPercent := float64(memoryRequestsBytesTotal) * 100 / float64(nodesMemory[index])
-		cpuLimitUsedPercent := float64(cpuLimitsMiliTotal) * 100 / float64(nodesCPU[index])
-		memoryLimitUsedPercent := float64(memoryLimitsBytesTotal) * 100 / float64(nodesMemory[index])
+		cpuRequestUsedPercent := float64(cpuRequestsMiliTotal) * 100 / float64(nodes[index].allocatableCPU)
+		memoryRequestUsedPercent := float64(memoryRequestsBytesTotal) * 100 / float64(nodes[index].allocatableMemory)
+		cpuLimitUsedPercent := float64(cpuLimitsMiliTotal) * 100 / float64(nodes[index].allocatableCPU)
+		memoryLimitUsedPercent := float64(memoryLimitsBytesTotal) * 100 / float64(nodes[index].allocatableMemory)
 		fmt.Printf("\nCPU Limits, Requests and Memory Limits, Requests used percentage till now : %.2f %.2f %.2f %.2f", cpuLimitUsedPercent, cpuRequestUsedPercent, memoryLimitUsedPercent, memoryRequestUsedPercent)
 
-		if nodesCPU[index] <= cpuRequestsMiliTotal {
+		if nodes[index].allocatableCPU <= cpuRequestsMiliTotal {
 			//fmt.Printf("\nCPU requests full..can't satisfy the requests")
-			possibleMaxCPUReplicas = 0			
+			possibleMaxCPUReplicas = 0
 		} else {
-			possibleMaxCPUReplicas = int((nodesCPU[index] - cpuRequestsMiliTotal) / cpuRequests)
+			possibleMaxCPUReplicas = int((nodes[index].allocatableCPU - cpuRequestsMiliTotal) / cpuRequests)
 		}
-		if nodesMemory[index] <= memoryRequestsBytesTotal {
+		if nodes[index].allocatableMemory <= memoryRequestsBytesTotal {
 			//fmt.Printf("\nMemory requests full..can't satisfy the requests")
 			possibleMaxMemoryReplicas = 0
 		} else {
-			possibleMaxMemoryReplicas = int((nodesMemory[index] - memoryRequestsBytesTotal) / memRequests)
+			possibleMaxMemoryReplicas = int((nodes[index].allocatableMemory - memoryRequestsBytesTotal) / memRequests)
 		}
 
 		//fmt.Printf("\nPossible replicas with CPU and Memory requests: %v %v", possibleMaxCPUReplicas, possibleMaxMemoryReplicas)
 		maxReplicas := findMin(possibleMaxCPUReplicas, possibleMaxMemoryReplicas)
-		if maxReplicas >= nodeAllocatablePods[index] {
-			maxReplicas = nodeAllocatablePods[index] - len(pods)
+		if maxReplicas >= nodes[index].allocatablePods {
+			maxReplicas = nodes[index].allocatablePods - len(pods)
 		}
 		fmt.Printf("\nMax replicas : %v\n", maxReplicas)
 		totalPossibleMaxReplicas = totalPossibleMaxReplicas + maxReplicas
@@ -151,17 +156,6 @@ func homeDir() string {
 	return os.Getenv("USERPROFILE") // windows
 }
 
-func userInput() string {
-
-	var input string
-	_, inputerr := fmt.Scan(&input)
-	if inputerr != nil {
-		fmt.Printf("\nProblem getting user input.\n")
-		os.Exit(1)
-	}
-	return input
-}
-
 func findMin(x int, y int) int {
 	if x <= y {
 		return x
@@ -169,11 +163,7 @@ func findMin(x int, y int) int {
 	return y
 }
 
-func getHealthyNodes(clientset *kubernetes.Clientset) ([]string, []uint64, []int64, []int) {
-	healthyNodes := make([]string, 0, 3)
-	nodesCPU := make([]uint64, 0, 3)
-	nodesMemory := make([]int64, 0, 3)
-	nodeAllocatablePods := make([]int, 0, 3)
+func getHealthyNodes(clientset *kubernetes.Clientset) []node {
 
 	nodes, err := clientset.CoreV1().Nodes().List(metav1.ListOptions{})
 	if err != nil {
@@ -181,24 +171,27 @@ func getHealthyNodes(clientset *kubernetes.Clientset) ([]string, []uint64, []int
 	}
 
 	noOfNodes := len(nodes.Items)
-	//fmt.Printf("\nThere are total %d nodes in the cluster\n\n", noOfNodes)
+	fmt.Printf("\nThere are total %d nodes in the cluster\n\n", noOfNodes)
+
+	healthyNodes := make([]node, noOfNodes, 3)
 
 	for i := 0; i < noOfNodes; i++ {
 
 		var flagHealthy bool = true
-		node := nodes.Items[i].Name
+		nodeName := nodes.Items[i].Name
 
-		nodeDetails, err := clientset.CoreV1().Nodes().Get(node, metav1.GetOptions{})
+		nodeDetails, err := clientset.CoreV1().Nodes().Get(nodeName, metav1.GetOptions{})
 		if err != nil {
 			panic(err.Error())
 		}
 
+		//This logic needs be modified depending what label selectors are applied to masters/nodes.
 		//Get rid of master nodes.
-		isNode := nodeDetails.Labels["node-role.kubernetes.io/node"]
+		/*isNode := nodeDetails.Labels["node-role.kubernetes.io/node"]
 		if isNode != "true" {
-			//fmt.Printf("%s is not a worker node..skipping\n", node)
+			fmt.Printf("%s is not a worker node..skipping\n", node)
 			continue
-		}
+		}*/
 
 		nodeAllocatableCPUDetails := nodeDetails.Status.Allocatable["cpu"]
 		nodeCPUAllocatable := convertCPUToMilis(nodeAllocatableCPUDetails.String())
@@ -213,28 +206,27 @@ func getHealthyNodes(clientset *kubernetes.Clientset) ([]string, []uint64, []int
 		}
 
 		allocatablePods := int(nodeDetails.Status.Allocatable.Pods().Value())
-		//allocatablePods := allocatablePodsDetails.String()
 		//fmt.Printf("\nNode %v : CPU - %v , Memory - %v , Pods - %v\n", node, nodeCPUAllocatable, nodeMemoryAllocatable, nodeAllocatablePods)
 
 		//Loop around different conditions like OutOfDisk, MemoryPressure etc to check if their status is good.
 		for j := 0; j < 4; j++ {
 			conditionStatus := nodeDetails.Status.Conditions[j].Status
 			if conditionStatus != "False" {
-				fmt.Printf("Skipping node %s as it is not healthy\n", node)
+				fmt.Printf("Skipping node %s as it is not healthy\n", nodeName)
 				flagHealthy = false
 				break
 			}
 		}
 
 		if flagHealthy == true {
-			healthyNodes = append(healthyNodes, node)
-			nodesCPU = append(nodesCPU, nodeCPUAllocatable)
-			nodesMemory = append(nodesMemory, nodeMemoryAllocatable)
-			nodeAllocatablePods = append(nodeAllocatablePods, allocatablePods)
+			healthyNodes[i].name = nodeName
+			healthyNodes[i].allocatableCPU = nodeCPUAllocatable
+			healthyNodes[i].allocatableMemory = nodeMemoryAllocatable
+			healthyNodes[i].allocatablePods = allocatablePods
 		}
 	}
 
-	return healthyNodes, nodesCPU, nodesMemory, nodeAllocatablePods
+	return healthyNodes
 }
 
 func getNonTerminatedPodsForNode(clientset *kubernetes.Clientset, node string) ([]string, []string) {
